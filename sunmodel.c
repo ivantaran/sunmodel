@@ -4,11 +4,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <float.h>
+#include <string.h>
+#include <assert.h>
 
 #include "sunmodel.h"
 
-#define RAD2DEG(X) (180.0 * X / M_PI)
-#define DEG2RAD(X) (M_PI * X / 180.0)
+#define RAD2DEG(X) (180.0 * (X) / M_PI)
+#define DEG2RAD(X) (M_PI * (X) / 180.0)
 
 static double sunmodel_time_julian_cent(double jd) {
     return (jd - 2451545.0) / 36525.0;
@@ -66,13 +68,14 @@ static double sunmodel_geom_mean_long_sun(double t) {
       lon += 360.0;
     }
     
-    return lon; // in degrees
+    lon = DEG2RAD(lon);
+    return lon; // in radians
 }
 
 static double sunmodel_geom_mean_anomaly_sun(double t) {
     double m;
-    m = 357.52911 + t * (35999.05029 - 0.0001537 * t);
-    return m; // in degrees
+    m = DEG2RAD(357.52911 + t * (35999.05029 - 0.0001537 * t));
+    return m; // in radians
 }
 
 static double sunmodel_eccentricity_earth_orbit(double t) {
@@ -81,65 +84,63 @@ static double sunmodel_eccentricity_earth_orbit(double t) {
     return e; // unitless
 }
 
-static double sunmodel_sun_eq_of_center(double t) {
-    double m, mrad, sinm, sin2m, sin3m, c;
+static double sunmodel_sun_eq_of_center(double t, double m) {
+    double sinm, sin2m, sin3m, c;
     
-    m = sunmodel_geom_mean_anomaly_sun(t);
-    mrad = DEG2RAD(m);
-    sinm = sin(mrad);
-    sin2m = sin(mrad + mrad);
-    sin3m = sin(mrad + mrad + mrad);
+    sinm = sin(m);
+    sin2m = sin(2.0 * m);
+    sin3m = sin(3.0 * m);
     c = sinm * (1.914602 - t * (0.004817 + 0.000014 * t))
             + sin2m * (0.019993 - 0.000101 * t) + sin3m * 0.000289;
+    c = DEG2RAD(c);
     
-    return c; // in degrees
+    return c; // in radians
 }
 
-static double sunmodel_sun_true_long(double t) {
+static double sunmodel_sun_true_long(double t, double m) {
     double l0, c, o;
     l0 = sunmodel_geom_mean_long_sun(t);
-    c = sunmodel_sun_eq_of_center(t);
+    c = sunmodel_sun_eq_of_center(t, m);
     o = l0 + c;
-    return o; // in degrees
+    return o; // in radians
 }
 
-static double sunmodel_sun_true_anomaly(double t) {
-    double m, c, v;
-    m = sunmodel_geom_mean_anomaly_sun(t);
-    c = sunmodel_sun_eq_of_center(t);
+static double sunmodel_sun_true_anomaly(double t, double m) {
+    double c, v;
+    c = sunmodel_sun_eq_of_center(t, m);
     v = m + c;
-    return v; // in degrees
+    return v; // in radians
 }
 
-static double sunmodel_sun_rad_vector(double t) {
+static double sunmodel_sun_rad_vector(double t, double m) {
     double v, e, r;
-    v = sunmodel_sun_true_anomaly(t);
+    v = sunmodel_sun_true_anomaly(t, m);
     e = sunmodel_eccentricity_earth_orbit(t);
-    r = (1.000001018 * (1.0 - e * e)) / (1.0 + e * cos(DEG2RAD(v)));
+    r = (1.000001018 * (1.0 - e * e)) / (1.0 + e * cos(v));
     return r; // in AUs
 }
 
-static double sunmodel_sun_apparent_long(double t) {
+static double sunmodel_sun_apparent_long(double t, double m) {
     double o, omega, lambda;
-    o = sunmodel_sun_true_long(t);
-    omega = 125.04 - 1934.136 * t;
-    lambda = o - 0.00569 - 0.00478 * sin(DEG2RAD(omega));
-    return lambda; // in degrees
+    o = sunmodel_sun_true_long(t, m);
+    omega = DEG2RAD(125.04 - 1934.136 * t);
+    lambda = o - DEG2RAD(0.00569 + 0.00478 * sin(omega));
+    return lambda; // in radians
 }
 
 static double sunmodel_mean_obliquity_of_ecliptic(double t) {
     double seconds, e0;
     seconds = 21.448 - t * (46.8150 + t * (0.00059 - t * 0.001813));
-    e0 = 23.0 + (26.0 + seconds / 60.0) / 60.0;
-    return e0; // in degrees
+    e0 = DEG2RAD(23.0 + (26.0 + seconds / 60.0) / 60.0);
+    return e0; // in radians
 }
 
 static double sunmodel_obliquity_correction(double t) {
     double e0, omega, e;
     e0 = sunmodel_mean_obliquity_of_ecliptic(t);
-    omega = 125.04 - 1934.136 * t;
-    e = e0 + 0.00256 * cos(DEG2RAD(omega));
-    return e; // in degrees
+    omega = DEG2RAD(125.04 - 1934.136 * t);
+    e = e0 + DEG2RAD(0.00256 * cos(omega));
+    return e; // in radians
 }
 
 //function calcSunRtAscension(t)
@@ -152,32 +153,31 @@ static double sunmodel_obliquity_correction(double t) {
 //  return alpha;		// in degrees
 //}
 //
-static double sunmodel_sun_declination(double t) {
+static double sunmodel_sun_declination(double t, double m) {
     double e, lambda, sint, theta;
     e = sunmodel_obliquity_correction(t);
-    lambda = sunmodel_sun_apparent_long(t);
+    lambda = sunmodel_sun_apparent_long(t, m);
 
-    sint = sin(DEG2RAD(e)) * sin(DEG2RAD(lambda));
-    theta = RAD2DEG(asin(sint));
-    return theta; // in degrees
+    sint = sin(e) * sin(lambda);
+    theta = asin(sint);
+    return theta; // in radians
 }
 
-static double sunmodel_equation_of_time(double t) {
-    double epsilon, l0, e, m, y, sin2l0, sinm, cos2l0, sin4l0, sin2m, etime;
+static double sunmodel_equation_of_time(double t, double m) {
+    double epsilon, l0, e, y, sin2l0, sinm, cos2l0, sin4l0, sin2m, etime;
     
     epsilon = sunmodel_obliquity_correction(t);
     l0 = sunmodel_geom_mean_long_sun(t);
     e = sunmodel_eccentricity_earth_orbit(t);
-    m = sunmodel_geom_mean_anomaly_sun(t);
 
-    y = tan(DEG2RAD(epsilon) * 0.5);
+    y = tan(epsilon * 0.5);
     y *= y;
 
-    sin2l0 = sin(2.0 * DEG2RAD(l0));
-    sinm   = sin(DEG2RAD(m));
-    cos2l0 = cos(2.0 * DEG2RAD(l0));
-    sin4l0 = sin(4.0 * DEG2RAD(l0));
-    sin2m  = sin(2.0 * DEG2RAD(m));
+    sin2l0 = sin(2.0 * l0);
+    sinm   = sin(m);
+    cos2l0 = cos(2.0 * l0);
+    sin4l0 = sin(4.0 * l0);
+    sin2m  = sin(2.0 * m);
 
     etime = y * sin2l0 - 2.0 * e * sinm + 4.0 * e * y * sinm * cos2l0 
             - 0.5 * y * y * sin4l0 - 1.25 * e * e * sin2m;
@@ -203,20 +203,21 @@ static double sunmodel_get_jd(struct tm *gmt) {
     return jd;
 }
 
-static double sunmodel_az_el(double T, double localtime, double latitude, double longitude, double zone) {
+static void sunmodel_az_el(double t, double localtime, double latitude, double longitude, double *azm, double *elv) {
     double azimuth, eq_time, theta, solar_time_fix, earth_rad_vec;
     double true_solar_time, hour_angle, csz, zenith, az_denom;
-    double exoatm_elevation, refraction_correction, te, solar_zen;
+    double exoatm_elevation, refraction_correction, te, solar_zen, m;
     
-    eq_time = sunmodel_equation_of_time(T);
-    theta  = sunmodel_sun_declination(T);
+    m = sunmodel_geom_mean_anomaly_sun(t);
+    eq_time = sunmodel_equation_of_time(t, m);
+    theta  = sunmodel_sun_declination(t, m);
     
     printf("eq_time: %8.2f\n", floor(eq_time * 100.0 + 0.5) * 0.01);
-    printf("theta  : %8.2f\n", floor(theta * 100.0 + 0.5) * 0.01);
+    printf("theta  : %8.2f\n", floor(RAD2DEG(theta) * 100.0 + 0.5) * 0.01);
     
 
-    solar_time_fix = eq_time + 4.0 * longitude - 60.0 * zone;
-    earth_rad_vec = sunmodel_sun_rad_vector(T);
+    solar_time_fix = eq_time + 4.0 * RAD2DEG(longitude);
+    earth_rad_vec = sunmodel_sun_rad_vector(t, m);
     true_solar_time = localtime + solar_time_fix;
             
     while (true_solar_time > 1440.0) {
@@ -229,8 +230,8 @@ static double sunmodel_az_el(double T, double localtime, double latitude, double
     }
     
     hour_angle = DEG2RAD(hour_angle);
-    csz = sin(DEG2RAD(latitude)) * sin(DEG2RAD(theta)) + 
-            cos(DEG2RAD(latitude)) * cos(DEG2RAD(theta)) * cos(hour_angle);
+    csz = sin(latitude) * sin(theta) + 
+            cos(latitude) * cos(theta) * cos(hour_angle);
     
     if (csz > 1.0) {
         csz = 1.0;
@@ -242,10 +243,10 @@ static double sunmodel_az_el(double T, double localtime, double latitude, double
     }
     
     zenith = RAD2DEG(acos(csz));
-    az_denom = cos(DEG2RAD(latitude)) * sin(DEG2RAD(zenith));
+    az_denom = cos(latitude) * sin(DEG2RAD(zenith));
     
     if (fabs(az_denom) > DBL_EPSILON) {
-        azimuth = ((sin(DEG2RAD(latitude)) * cos(DEG2RAD(zenith))) - sin(DEG2RAD(theta))) / az_denom;
+        azimuth = ((sin(latitude) * cos(DEG2RAD(zenith))) - sin(theta)) / az_denom;
     
         if (fabs(azimuth) > 1.0) {
             if (azimuth < 0.0) {
@@ -310,29 +311,59 @@ static double sunmodel_az_el(double T, double localtime, double latitude, double
     printf("azm: %8.2f\n", floor(azimuth * 100.0 + 0.5) * 0.01);
     printf("elv: %8.2f\n", floor((90.0 - solar_zen) * 100.0 + 0.5) * 0.01);
     
-    return azimuth;
+    if (azm != NULL) {
+        (*azm) = azimuth;
+    }
+    
+    if (elv != NULL) {
+        (*elv) = 90.0 - solar_zen;
+    }
+}
+
+void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv) {
+    struct tm *gmt;
+    double jday, tl, tt;
+
+    gmt = gmtime(&t);
+    
+    if (gmt == NULL) {
+        return;
+    }
+    
+    jday = sunmodel_get_jd(gmt);
+    tl = gmt->tm_hour / 24.0 + gmt->tm_min / 1440.0 + gmt->tm_sec / 86400.0;
+    tt = sunmodel_time_julian_cent(jday + tl);
+    sunmodel_az_el(tt, tl * 1440.0, lat, lon, azm, elv);
 }
 
 void sunmodel_test(void) {
     time_t t;
-    struct tm *gmt;
-    double jday, tl, tz, total, T, lat, lon;
-
-    t = time(NULL);
-    gmt = gmtime(&t);
-    puts(ctime(&t));
-    if (gmt == NULL) {
-        exit(-1);
-    }
+    struct tm gmt;
+    double lat, lon;
+    double azm, elv;
     
-    jday = sunmodel_get_jd(gmt);
-    tl = (gmt->tm_hour / 24.0 + gmt->tm_min / 1440.0 + gmt->tm_sec / 86400.0) * 1440.0;
-    tz = 0.0;
-    total = jday + tl / 1440.0 - tz / 24.0;
-    T = sunmodel_time_julian_cent(total);
-    lat = 58.0;
-    lon = 63.0;
-    sunmodel_az_el(T, tl, lat, lon, tz);
+    memset(&gmt, 0, sizeof(gmt));
+    
+    gmt.tm_year = 2018 - 1900;
+    gmt.tm_mon = 0;
+    gmt.tm_mday = 1;
+    gmt.tm_hour = 6;
+    gmt.tm_min = 0;
+    gmt.tm_sec = 0;
+    
+    t = mktime(&gmt) - __timezone;
+    
+    setenv("TZ", "UTC", 1);
+    printf("%s%s\n", ctime(&t), getenv("TZ"));
+    
+    lat = DEG2RAD(58.0);
+    lon = DEG2RAD(63.0);
+    
+    sunmodel_make(t, lat, lon, &azm, &elv);
+    double dazm = fabs(azm - 154.384634974813025110051967203617095947265625);
+    double delv = fabs(elv - 5.8779458855349417945035384036600589752197265625);
+    printf("dazm: %g\n", dazm);
+    printf("delv: %g\n", delv);
+    assert(dazm <= DBL_EPSILON);
+    assert(delv <= DBL_EPSILON);
 }
-
-

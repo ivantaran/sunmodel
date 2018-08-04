@@ -12,6 +12,7 @@
 extern "C" {
 #endif
 
+void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv);
 void sunmodel_test(void);
 
 
