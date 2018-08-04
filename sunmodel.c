@@ -204,7 +204,7 @@ static double sunmodel_get_jd(struct tm *gmt) {
 }
 
 static void sunmodel_az_el(double t, double localtime, double latitude, double longitude, double *azm, double *elv) {
-    double azimuth, eq_time, theta, solar_time_fix, earth_rad_vec;
+    double azimuth, eq_time, theta, solar_time_fix;
     double true_solar_time, hour_angle, csz, zenith, az_denom;
     double exoatm_elevation, refraction_correction, te, solar_zen, m;
     
@@ -215,19 +215,20 @@ static void sunmodel_az_el(double t, double localtime, double latitude, double l
     printf("eq_time: %8.2f\n", floor(eq_time * 100.0 + 0.5) * 0.01);
     printf("theta  : %8.2f\n", floor(RAD2DEG(theta) * 100.0 + 0.5) * 0.01);
     
-
     solar_time_fix = eq_time + 4.0 * RAD2DEG(longitude);
-    earth_rad_vec = sunmodel_sun_rad_vector(t, m);
     true_solar_time = localtime + solar_time_fix;
             
     while (true_solar_time > 1440.0) {
         true_solar_time -= 1440.0;
     }
     
-    hour_angle = true_solar_time / 4.0 - 180.0;
+    hour_angle = true_solar_time * 0.25 - 180.0;
     if (hour_angle < -180.0)  {
         hour_angle += 360.0;
     }
+    
+    double slon = 180.0 - (eq_time + localtime) * 0.25;
+    printf("lon  : %8.2f\n", floor(slon * 100.0 + 0.5) * 0.01);
     
     hour_angle = DEG2RAD(hour_angle);
     csz = sin(latitude) * sin(theta) + 
