@@ -139,15 +139,19 @@ static double sunmodel_get_jd(struct tm *gmt) {
     return jd;
 }
 
-static void sunmodel_ae(double slat, double slon, double latitude, double longitude, double *azm, double *elv) {
+static void sunmodel_ae(double slat, double slon, double lat, double lon, double *azm, double *elv) {
     double azimuth;
-    double hour_angle, csz, zenith, az_denom;
+    double omega, csz, zenith, az_denom;
     double exoatm_elevation, refraction_correction, te, solar_zen;
-
-    hour_angle = longitude - slon;
+    double sinlat, coslat, sinslat, cosslat;
     
-    csz = sin(latitude) * sin(slat) + 
-            cos(latitude) * cos(slat) * cos(hour_angle);
+    omega = lon - slon;
+    sinlat = sin(lat);
+    coslat = cos(lat);
+    sinslat = sin(slat);
+    cosslat = cos(slat);
+    
+    csz = sinlat * sinslat + coslat * cosslat * cos(omega);
     
     if (csz > 1.0) {
         csz = 1.0;
@@ -158,11 +162,11 @@ static void sunmodel_ae(double slat, double slon, double latitude, double longit
         }
     }
     
-    zenith = RAD2DEG(acos(csz));
-    az_denom = cos(latitude) * sin(DEG2RAD(zenith));
+    zenith = acos(csz);
+    az_denom = coslat * sin(zenith);
     
-    if (fabs(az_denom) > DBL_EPSILON) {
-        azimuth = ((sin(latitude) * cos(DEG2RAD(zenith))) - sin(slat)) / az_denom;
+    if (fabs(az_denom) > DBL_EPSILON) { // TODO check relatyvely nominator
+        azimuth = (sinlat * csz - sinslat) / az_denom;
     
         if (fabs(azimuth) > 1.0) {
             if (azimuth < 0.0) {
@@ -174,12 +178,12 @@ static void sunmodel_ae(double slat, double slon, double latitude, double longit
         }
         
         azimuth = 180.0 - RAD2DEG(acos(azimuth));
-        if (hour_angle > 0.0) {
+        if (omega > 0.0) {
             azimuth = -azimuth;
         }
     } 
     else {
-        if (latitude > 0.0) {
+        if (lat > 0.0) {
             azimuth = 180.0;
         } else { 
             azimuth = 0.0;
@@ -192,7 +196,7 @@ static void sunmodel_ae(double slat, double slon, double latitude, double longit
     
 
     /* Atmospheric Refraction correction */
-    exoatm_elevation = 90.0 - zenith;
+    exoatm_elevation = 90.0 - RAD2DEG(zenith);
 
     if (exoatm_elevation > 85.0) {
           refraction_correction = 0.0;
@@ -217,7 +221,7 @@ static void sunmodel_ae(double slat, double slon, double latitude, double longit
         refraction_correction = refraction_correction / 3600.0;
     }
 
-    solar_zen = zenith - refraction_correction;
+    solar_zen = RAD2DEG(zenith) - refraction_correction;
     /* Atmospheric Refraction correction */
 
     if (solar_zen > 108.0) {
@@ -334,11 +338,20 @@ void sunmodel_test(void) {
     lon = DEG2RAD(63.0);
     
     sunmodel_make(t, lat, lon, &azm, &elv);
-    double dazm = fabs(azm - 154.384634974813025110051967203617095947265625);
-    double delv = fabs(elv - 5.8779458855349417945035384036600589752197265625);
-    printf("dazm: %g\n", dazm);
-    printf("delv: %g\n", delv);
-    assert(dazm <= DBL_EPSILON);
-    assert(delv <= DBL_EPSILON);
+    
+    const double azm0 = 154.384634974813025110051967203617095947265625;
+    const double elv0 = 5.8779458855349417945035384036600589752197265625;
+    
+    double dazm = fabs(azm - azm0);
+    double delv = fabs(elv - elv0);
+    double eazm = 2.0 * DBL_EPSILON * fmax(fabs(azm), fabs(azm0));
+    double eelv = 2.0 * DBL_EPSILON * fmax(fabs(elv), fabs(elv0));
+    
+    printf("dazm: %16g\t%16g\n", dazm, eazm);
+    printf("delv: %16g\t%16g\n", delv, eelv);
+    
+    assert(dazm <= eazm);
+    assert(delv <= eelv);
+    
     puts("test passed");
 }
