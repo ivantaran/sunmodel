@@ -139,65 +139,15 @@ static double sunmodel_get_jd(struct tm *gmt) {
     return jd;
 }
 
-static void sunmodel_az_el(double t, double localtime, double latitude, double longitude, double *azm, double *elv) {
-    double epsilon, l0, y, sin2l0, sinm, cos2l0, sin4l0, sin2m, sin3m, etime;
-    double azimuth, eq_time, theta, true_long;
-    double true_solar_time, hour_angle, csz, zenith, az_denom;
-    double exoatm_elevation, refraction_correction, te, solar_zen, m, e, seoc;
+static void sunmodel_ae(double slat, double slon, double latitude, double longitude, double *azm, double *elv) {
+    double azimuth;
+    double hour_angle, csz, zenith, az_denom;
+    double exoatm_elevation, refraction_correction, te, solar_zen;
+
+    hour_angle = longitude - slon;
     
-    m = sunmodel_geom_mean_anomaly_sun(t);
-    e = sunmodel_eccentricity_earth_orbit(t);
-
-    /* equation_of_time */
-    epsilon = sunmodel_obliquity_correction(t);
-    l0 = sunmodel_geom_mean_long_sun(t);
-
-    y = tan(epsilon * 0.5);
-    y *= y;
-
-    sin2l0 = sin(2.0 * l0);
-    sin4l0 = sin(4.0 * l0);
-    cos2l0 = cos(2.0 * l0);
-    sinm   = sin(m);
-    sin2m  = sin(2.0 * m);
-    sin3m  = sin(3.0 * m);
-
-    etime = y * sin2l0 - 2.0 * e * sinm + 4.0 * e * y * sinm * cos2l0 
-            - 0.5 * y * y * sin4l0 - 1.25 * e * e * sin2m;
-    eq_time = RAD2DEG(etime) * 4.0; // in minutes of time
-    /* equation_of_time */
-
-
-    /* sun_eq_of_center */
-    seoc = sinm * (1.914602 - t * (0.004817 + 0.000014 * t))
-            + sin2m * (0.019993 - 0.000101 * t) + sin3m * 0.000289;
-    seoc = DEG2RAD(seoc);
-    /* sun_eq_of_center */
-
-    true_long = seoc + l0;
-    theta  = sunmodel_sun_declination(t, true_long);
-    
-    printf("eq_time: %8.2f\n", floor(eq_time * 100.0 + 0.5) * 0.01);
-    printf("theta  : %8.2f\n", floor(RAD2DEG(theta) * 100.0 + 0.5) * 0.01);
-    
-    true_solar_time = localtime + eq_time + 4.0 * RAD2DEG(longitude);
-
-    true_solar_time = fmod(true_solar_time, 1440.0);
-    if (true_solar_time < 0.0) {
-        true_solar_time += 1440.0;
-    }
-    
-    hour_angle = true_solar_time * 0.25 - 180.0;
-    if (hour_angle < -180.0)  {
-        hour_angle += 360.0;
-    }
-    
-    double slon = 180.0 - (eq_time + localtime) * 0.25;
-    printf("lon  : %8.2f\n", floor(slon * 100.0 + 0.5) * 0.01);
-    
-    hour_angle = DEG2RAD(hour_angle);
-    csz = sin(latitude) * sin(theta) + 
-            cos(latitude) * cos(theta) * cos(hour_angle);
+    csz = sin(latitude) * sin(slat) + 
+            cos(latitude) * cos(slat) * cos(hour_angle);
     
     if (csz > 1.0) {
         csz = 1.0;
@@ -212,7 +162,7 @@ static void sunmodel_az_el(double t, double localtime, double latitude, double l
     az_denom = cos(latitude) * sin(DEG2RAD(zenith));
     
     if (fabs(az_denom) > DBL_EPSILON) {
-        azimuth = ((sin(latitude) * cos(DEG2RAD(zenith))) - sin(theta)) / az_denom;
+        azimuth = ((sin(latitude) * cos(DEG2RAD(zenith))) - sin(slat)) / az_denom;
     
         if (fabs(azimuth) > 1.0) {
             if (azimuth < 0.0) {
@@ -286,10 +236,64 @@ static void sunmodel_az_el(double t, double localtime, double latitude, double l
     }
 }
 
+static void sunmodel_ll(double t, double localtime, double *lat, double *lon) {
+    double epsilon, l0, y, sin2l0, sinm, cos2l0, sin4l0, sin2m, sin3m, etime;
+    double eq_time, true_long, m, e, seoc, slat, slon;
+    
+    m = sunmodel_geom_mean_anomaly_sun(t);
+    e = sunmodel_eccentricity_earth_orbit(t);
+
+    /* equation_of_time */
+    epsilon = sunmodel_obliquity_correction(t);
+    l0 = sunmodel_geom_mean_long_sun(t);
+
+    y = tan(epsilon * 0.5);
+    y *= y;
+
+    sin2l0 = sin(2.0 * l0);
+    sin4l0 = sin(4.0 * l0);
+    cos2l0 = cos(2.0 * l0);
+    sinm   = sin(m);
+    sin2m  = sin(2.0 * m);
+    sin3m  = sin(3.0 * m);
+
+    etime = y * sin2l0 - 2.0 * e * sinm + 4.0 * e * y * sinm * cos2l0 
+            - 0.5 * y * y * sin4l0 - 1.25 * e * e * sin2m;
+    eq_time = RAD2DEG(etime) * 4.0; // in minutes of time
+    /* equation_of_time */
+
+
+    /* sun_eq_of_center */
+    seoc = sinm * (1.914602 - t * (0.004817 + 0.000014 * t))
+            + sin2m * (0.019993 - 0.000101 * t) + sin3m * 0.000289;
+    seoc = DEG2RAD(seoc);
+    /* sun_eq_of_center */
+
+    true_long = seoc + l0;
+    
+    slat  = sunmodel_sun_declination(t, true_long);
+    slon = 180.0 - (eq_time + localtime) * 0.25;
+    slon = fmod(slon + 180.0, 360.0);
+    if (slon < 0.0) {
+        slon += 360.0;
+    }
+    slon -= 180.0;
+    slon = DEG2RAD(slon);
+
+    if (lat != NULL) {
+        (*lat) = slat;
+    }
+    
+    if (lon != NULL) {
+        (*lon) = slon;
+    }
+}
+
 void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv) {
     struct tm *gmt;
     double jday, tl, tt;
-
+    double slon, slat;
+    
     gmt = gmtime(&t);
     
     if (gmt == NULL) {
@@ -299,7 +303,11 @@ void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv) {
     jday = sunmodel_get_jd(gmt);
     tl = gmt->tm_hour / 24.0 + gmt->tm_min / 1440.0 + gmt->tm_sec / 86400.0;
     tt = sunmodel_time_julian_cent(jday + tl);
-    sunmodel_az_el(tt, tl * 1440.0, lat, lon, azm, elv);
+    sunmodel_ll(tt, tl * 1440.0, &slat, &slon);
+
+    printf("slat: %8.2f\n", floor(RAD2DEG(slat) * 100.0 + 0.5) * 0.01);
+    printf("slon: %8.2f\n\n", floor(RAD2DEG(slon) * 100.0 + 0.5) * 0.01);
+    sunmodel_ae(slat, slon, lat, lon, azm, elv);
 }
 
 void sunmodel_test(void) {
@@ -332,4 +340,5 @@ void sunmodel_test(void) {
     printf("delv: %g\n", delv);
     assert(dazm <= DBL_EPSILON);
     assert(delv <= DBL_EPSILON);
+    puts("test passed");
 }
