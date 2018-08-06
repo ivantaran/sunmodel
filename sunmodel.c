@@ -81,7 +81,8 @@ static double sunmodel_eccentricity_earth_orbit(double t) {
     return e; // unitless
 }
 
-static double sunmodel_sun_rad_vector(double t, double m, double seoc, double e) {
+static double sunmodel_sun_rad_vector(double t, double m, double seoc, 
+        double e) {
     double v, r;
     v = m + seoc;
     r = (1.000001018 * (1.0 - e * e)) / (1.0 + e * cos(v));
@@ -139,10 +140,35 @@ static double sunmodel_get_jd(struct tm *gmt) {
     return jd;
 }
 
-static void sunmodel_ae(double slat, double slon, double lat, double lon, double *azm, double *elv) {
+static double sunmodel_atmo_refraction_correction(double elevation) {
+    double value, te;
+    /* Atmospheric refraction correction */
+    if (elevation > DEG2RAD(85.0)) {
+          value = 0.0;
+    } 
+    else {
+        te = tan(elevation);
+        if (elevation > DEG2RAD(5.0)) {
+            value = 58.1 / te - 0.07 / (te * te * te) + 
+                    0.000086 / (te * te * te * te * te);
+        } 
+        else {
+            if (elevation > DEG2RAD(-0.575)) {
+                value = 1735.0 + elevation * (-518.2 + elevation * 
+                        (103.4 + elevation * (-12.79 + elevation * 0.711)));
+            }
+            else {
+                value = -20.774 / te;
+            }
+        }
+        value = DEG2RAD(value / 3600.0);
+    }
+}
+
+static void sunmodel_ae_0(double slat, double slon, double lat, double lon, 
+        double *azm, double *elv, char use_arc) {
     double azimuth;
-    double omega, csz, zenith, az_denom;
-    double exoatm_elevation, refraction_correction, te, solar_zen;
+    double omega, csz, elevation, az_denom;
     double sinlat, coslat, sinslat, cosslat;
     
     omega = lon - slon;
@@ -162,8 +188,8 @@ static void sunmodel_ae(double slat, double slon, double lat, double lon, double
         }
     }
     
-    zenith = acos(csz);
-    az_denom = coslat * sin(zenith);
+    elevation = asin(csz);
+    az_denom = coslat * cos(elevation);
     
     if (fabs(az_denom) > DBL_EPSILON) { // TODO check relatyvely nominator
         azimuth = (sinlat * csz - sinslat) / az_denom;
@@ -177,70 +203,42 @@ static void sunmodel_ae(double slat, double slon, double lat, double lon, double
             }
         }
         
-        azimuth = 180.0 - RAD2DEG(acos(azimuth));
+        azimuth = M_PI - acos(azimuth);
         if (omega > 0.0) {
             azimuth = -azimuth;
         }
     } 
     else {
         if (lat > 0.0) {
-            azimuth = 180.0;
+            azimuth = M_PI;
         } else { 
             azimuth = 0.0;
         }
     }
     
     if (azimuth < 0.0) {
-        azimuth += 360.0;
+        azimuth += 2.0 * M_PI;
     }
     
-
-    /* Atmospheric Refraction correction */
-    exoatm_elevation = 90.0 - RAD2DEG(zenith);
-
-    if (exoatm_elevation > 85.0) {
-          refraction_correction = 0.0;
-    } 
-    else {
-        te = tan(DEG2RAD(exoatm_elevation));
-        if (exoatm_elevation > 5.0) {
-            refraction_correction = 
-                    58.1 / te - 0.07 / (te * te * te) + 
-                    0.000086 / (te * te * te * te * te);
-        } 
-        else {
-            if (exoatm_elevation > -0.575) {
-                refraction_correction = 
-                        1735.0 + exoatm_elevation * (-518.2 + exoatm_elevation * 
-                        (103.4 + exoatm_elevation * (-12.79 + exoatm_elevation * 0.711)));
-            }
-            else {
-                refraction_correction = -20.774 / te;
-            }
-        }
-        refraction_correction = refraction_correction / 3600.0;
+    if (use_arc == 1 || use_arc == 'y') {
+        elevation += sunmodel_atmo_refraction_correction(elevation);
     }
 
-    solar_zen = RAD2DEG(zenith) - refraction_correction;
-    /* Atmospheric Refraction correction */
-
-    if (solar_zen > 108.0) {
-        puts("A Night at the Roxbury");
-    }
-    
-    printf("azm: %8.2f\n", floor(azimuth * 100.0 + 0.5) * 0.01);
-    printf("elv: %8.2f\n", floor((90.0 - solar_zen) * 100.0 + 0.5) * 0.01);
+//    if (elevation < DEG2RAD(-18.0)) {
+//        puts("A Night at the Roxbury");
+//    }
     
     if (azm != NULL) {
         (*azm) = azimuth;
     }
     
     if (elv != NULL) {
-        (*elv) = 90.0 - solar_zen;
+        (*elv) = elevation;
     }
 }
 
-static void sunmodel_ll(double t, double localtime, double *lat, double *lon) {
+static void sunmodel_ll_0(double t, double localtime, double *lat, 
+        double *lon) {
     double epsilon, l0, y, sin2l0, sinm, cos2l0, sin4l0, sin2m, sin3m, etime;
     double eq_time, true_long, m, e, seoc, slat, slon;
     
@@ -293,7 +291,7 @@ static void sunmodel_ll(double t, double localtime, double *lat, double *lon) {
     }
 }
 
-void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv) {
+void sunmodel_ll(time_t t, double *lat, double *lon) {
     struct tm *gmt;
     double jday, tl, tt;
     double slon, slat;
@@ -307,17 +305,31 @@ void sunmodel_make(time_t t, double lat, double lon, double *azm, double *elv) {
     jday = sunmodel_get_jd(gmt);
     tl = gmt->tm_hour / 24.0 + gmt->tm_min / 1440.0 + gmt->tm_sec / 86400.0;
     tt = sunmodel_time_julian_cent(jday + tl);
-    sunmodel_ll(tt, tl * 1440.0, &slat, &slon);
+    
+    sunmodel_ll_0(tt, tl * 1440.0, &slat, &slon);
 
-    printf("slat: %8.2f\n", floor(RAD2DEG(slat) * 100.0 + 0.5) * 0.01);
-    printf("slon: %8.2f\n\n", floor(RAD2DEG(slon) * 100.0 + 0.5) * 0.01);
-    sunmodel_ae(slat, slon, lat, lon, azm, elv);
+    if (lat != NULL) {
+        (*lat) = slat;
+    }
+
+    if (lon != NULL) {
+        (*lon) = slon;
+    }
+}
+
+void sunmodel_ae(time_t t, double lat, double lon, double *azm, double *elv, 
+        char use_arc) {
+    double slon, slat;
+    
+    sunmodel_ll(t, &slat, &slon);
+    sunmodel_ae_0(slat, slon, lat, lon, azm, elv, use_arc);
 }
 
 void sunmodel_test(void) {
     time_t t;
     struct tm gmt;
     double lat, lon;
+    double slat, slon;
     double azm, elv;
     
     memset(&gmt, 0, sizeof(gmt));
@@ -333,25 +345,32 @@ void sunmodel_test(void) {
     
     setenv("TZ", "UTC", 1);
     printf("%s%s\n", ctime(&t), getenv("TZ"));
+    unsetenv("TZ");
     
     lat = DEG2RAD(58.0);
     lon = DEG2RAD(63.0);
     
-    sunmodel_make(t, lat, lon, &azm, &elv);
+    sunmodel_ll(t, &slat, &slon);
+    printf("slat: %8.2f\n", floor(RAD2DEG(slat) * 100.0 + 0.5) * 0.01);
+    printf("slon: %8.2f\n\n", floor(RAD2DEG(slon) * 100.0 + 0.5) * 0.01);
     
-    const double azm0 = 154.384634974813025110051967203617095947265625;
-    const double elv0 = 5.8779458855349417945035384036600589752197265625;
+    sunmodel_ae(t, lat, lon, &azm, &elv, 'y');
+    
+    const double azm0 = DEG2RAD(154.384634974813025110051967203617095947265625);
+    const double elv0 = DEG2RAD(5.8779458855349417945035384036600589752197265625);
     
     double dazm = fabs(azm - azm0);
     double delv = fabs(elv - elv0);
-    double eazm = 2.0 * DBL_EPSILON * fmax(fabs(azm), fabs(azm0));
-    double eelv = 2.0 * DBL_EPSILON * fmax(fabs(elv), fabs(elv0));
-    
+    double eazm = 20.0 * DBL_EPSILON * fmax(fabs(azm), fabs(azm0));
+    double eelv = 20.0 * DBL_EPSILON * fmax(fabs(elv), fabs(elv0));
+
+    printf("azm: %8.2f\n", floor(RAD2DEG(azm) * 100.0 + 0.5) * 0.01);
+    printf("elv: %8.2f\n", floor(RAD2DEG(elv) * 100.0 + 0.5) * 0.01);
     printf("dazm: %16g\t%16g\n", dazm, eazm);
     printf("delv: %16g\t%16g\n", delv, eelv);
     
     assert(dazm <= eazm);
     assert(delv <= eelv);
     
-    puts("test passed");
+    puts("test passed\n");
 }

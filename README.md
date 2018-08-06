@@ -4,7 +4,7 @@
 - [Source code js](https://www.esrl.noaa.gov/gmd/grad/solcalc/main.js)
 
 **TODO List**
-- [ ] detach atmospheric refraction correction
+- [x] detach atmospheric refraction correction
 - [x] split llr and aer functions
 - [x] remove multiple repeated internal function calls
 - [x] remove multiple repeated math function calls
