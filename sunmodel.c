@@ -163,6 +163,7 @@ static double sunmodel_atmo_refraction_correction(double elevation) {
         }
         value = DEG2RAD(value / 3600.0);
     }
+    return value;
 }
 
 static void sunmodel_ae_0(double slat, double slon, double lat, double lon, 
